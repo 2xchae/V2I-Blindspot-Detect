@@ -7,7 +7,7 @@ class CNN(nn.Module):
         super().__init__()
 
         #레이어 정의
-        self.layer1 = nn.Conv1d(3, 32, 5, 1, padding='same')
+        self.layer1 = nn.Conv1d(2, 32, 5, 1, padding='same')
         self.layer2 = nn.Conv1d(32, 64, 5, 1, padding='same')
         self.relu = nn.ReLU()
         self.pooling = nn.AdaptiveAvgPool1d(1)
@@ -16,7 +16,7 @@ class CNN(nn.Module):
         self.linear = nn.Linear(64,5)
         
 
-    def forward(self, x): # x.shape는 (batch, 3, 40)
+    def forward(self, x): # x.shape는 (batch, 2, 40)
         x1 = self.layer1(x) # (batch, 32, 40)
         x1 = self.relu(x1) # (batch, 32, 40)
         x2 = self.layer2(x1) # (batch, 64, 40)
