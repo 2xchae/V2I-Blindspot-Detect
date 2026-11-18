@@ -1,175 +1,234 @@
-#!/usr/bin/env python3
-"""
-make_scenario.py
-
-규칙
-- 시나리오당 구간 수: 3~6개
-- 전체 시나리오 길이: 20초
-- 없음(label 0)은 시나리오에 포함하지 않음
-- label 1(정지): 최소 2초
-- label 2(걷기 접근): 최소 3초
-- label 3(뛰기 접근): 최소 1.5초
-- label 4(이탈): 최소 2초
-- 각 구간의 최소 시간을 확보한 뒤 남은 시간을 무작위로 분배
-- 시간은 0.05초 단위로 생성하여 50ms 센서 샘플링 주기에 맞춤
-"""
-
-import argparse
 import csv
 import random
-from typing import Optional, List, Dict
 from pathlib import Path
 
-TOTAL_DURATION = 20.0
+# 기본 설정
+NUM_SCENARIOS = 100
+TOTAL_DURATION = 20
+NUM_SEGMENTS = 4
+
 TIME_STEP = 0.05
+METRONOME_BPM = 120
+
+MOVE_DISTANCE = 25
+MAX_DISTANCE = 150
+
 DURATION_STEP = 0.5
 
-# 구간별 최소 시간
-LABELS = {
-    1: {"name": "정지", "min_duration": 2.0},
-    2: {"name": "걷기 접근", "min_duration": 3.0},
-    3: {"name": "뛰기 접근", "min_duration": 1.5},
-    4: {"name": "이탈", "min_duration": 2.0},
+# 행동별 설정
+# 레이블: (행동 이름, 25cm 이동 시간)
+ACTIONS = {
+    1: ("정지", None),
+    2: ("걷기 접근", 3),
+    3: ("뛰기 접근", 1),
+    4: ("이탈", 1),
 }
 
 
-def generate_one_scenario(scenario_id: int) -> list[dict]:
-    """규칙에 맞는 시나리오 하나를 생성한다."""
-    # 3~6개 중 하나 뽑기
-    segment_count = random.randint(3, 6)
+# 구간 지속시간 생성
 
-    # 구간 후보 뽑기
-    selected_labels = []
-    for _ in range(segment_count):
-        candidates = list(LABELS.keys())
-        if selected_labels:
-            candidates.remove(selected_labels[-1])
-        selected_labels.append(random.choice(candidates))
+def generate_durations(labels):
+    """전체 20초를 행동별 시간 규칙에 맞게 분배한다."""
 
-    total_ticks = round(TOTAL_DURATION / DURATION_STEP)
-    min_ticks = {
-    label: round(info["min_duration"] / DURATION_STEP)
-    for label, info in LABELS.items()
-    }
+    candidates = []
 
-    durations_ticks = [min_ticks[label] for label in selected_labels]
-    remaining_ticks = total_ticks - sum(durations_ticks)
+    total_units = int(TOTAL_DURATION / DURATION_STEP)
 
-    if remaining_ticks < 0:
-        # 총 시간이 전체를 초과하는지 검사
-        raise ValueError("선택된 구간들의 최소 시간 합이 전체 시간을 초과합니다.")
+    def backtrack(index, remaining, durations):
 
-    # 남은 시간을 구간마다 무작위로 분배한다.
-    for _ in range(remaining_ticks):
-        index = random.randrange(segment_count)
-        durations_ticks[index] += 1
+        if index == NUM_SEGMENTS:
+            if remaining == 0:
+                candidates.append(durations[:])
+            return
 
-    # 실제 시작/종료 시각을 누적 계산
-    rows = []
-    current_time = 0.0
+        label = labels[index]
 
-    for order, (label, duration_tick) in enumerate(
-        zip(selected_labels, durations_ticks), start=1
-    ):
-        duration = duration_tick * DURATION_STEP
-        start_time = current_time
-        end_time = start_time + duration
+        if label == 1:
+            # 정지: 최소 2초, 0.5초 단위
+            min_units = int(2 / DURATION_STEP)
+            step_units = 1
 
-        rows.append({
-            "scenario_id": f"scenario_{scenario_id:03d}",
-            "segment_order": order,
-            "label": label,
-            "label_name": LABELS[label]["name"],
-            "duration_sec": round(duration, 2),
-            "start_sec": round(start_time, 2),
-            "end_sec": round(end_time, 2),
+        else:
+            # 이동 행동: 25cm 이동 시간의 배수
+            unit_time = ACTIONS[label][1]
+            min_units = int(unit_time / DURATION_STEP)
+            step_units = min_units
+
+        for duration_units in range(
+            min_units,
+            remaining + 1,
+            step_units
+        ):
+
+            duration = duration_units * DURATION_STEP
+
+            durations.append(duration)
+
+            backtrack(
+                index + 1,
+                remaining - duration_units,
+                durations
+            )
+
+            durations.pop()
+
+    backtrack(0, total_units, [])
+
+    if not candidates:
+        return None
+
+    return random.choice(candidates)
+
+
+# 이동 거리 계산
+def calculate_distances(labels, durations):
+    """구간별 시작 위치와 종료 위치를 계산한다."""
+
+    # 첫 구간이 이탈이면 임의 위치에서 시작
+    # 그 외에는 150cm에서 시작
+    if labels[0] == 4:
+        current_distance = random.randint(0, 5) * MOVE_DISTANCE
+    else:
+        current_distance = MAX_DISTANCE
+
+    distances = []
+
+    for label, duration in zip(labels, durations):
+
+        start_distance = current_distance
+
+        # 행동별 이동 횟수 계산
+        if label == 1:
+            move_count = 0
+
+        else:
+            unit_time = ACTIONS[label][1]
+            move_count = int(duration / unit_time)
+
+        total_distance = move_count * MOVE_DISTANCE
+
+        # 접근: 센서 방향으로 이동
+        if label in (2, 3):
+            current_distance -= total_distance
+
+        # 이탈: 센서 반대 방향으로 이동
+        elif label == 4:
+            current_distance += total_distance
+
+        # 측정 범위 확인
+        if not (0 <= current_distance <= MAX_DISTANCE):
+            return None
+
+        distances.append({
+            "start": start_distance,
+            "end": current_distance,
+            "distance": total_distance,
+            "move_count": move_count
         })
 
-        current_time = end_time
-
-    # 부동소수점 오차와 전체 길이를 검사
-    if round(current_time, 2) != TOTAL_DURATION:
-        raise RuntimeError("시나리오 길이가 20초가 아닙니다.")
-
-    return rows
-
-def generate_scenarios(count: int, seed: Optional[int] = None) -> List[Dict]:
-    """지정한 개수만큼 시나리오를 생성"""
-    if count <= 0:
-        raise ValueError("시나리오 개수는 1 이상이어야 함")
-
-    if seed is not None:
-        random.seed(seed)
-
-    all_rows = []
-    for scenario_id in range(1, count + 1):
-        all_rows.extend(generate_one_scenario(scenario_id))
-
-    return all_rows
+    return distances
 
 
-def save_csv(rows: list[dict], output_path: str) -> None:
+# 시나리오 생성
+def generate_scenario():
+
+    while True:
+
+        # 행동 4개 무작위 선택
+        labels = random.choices(
+            list(ACTIONS.keys()),
+            k=NUM_SEGMENTS
+        )
+
+        # 지속시간 생성
+        durations = generate_durations(labels)
+
+        if durations is None:
+            continue
+
+        # 이동 거리 및 범위 검증
+        distances = calculate_distances(labels, durations)
+
+        if distances is None:
+            continue
+
+        return labels, durations, distances
+
+
+# CSV 저장
+def save_scenarios(output_path="scenarios.csv"):
+
     output_path = Path(__file__).parent / output_path
 
+    rows = []
+
+    for i in range(NUM_SCENARIOS):
+
+        labels, durations, distances = generate_scenario()
+
+        row = {
+            "scenario_id": f"scenario_{i + 1:03d}"
+        }
+
+        for j in range(NUM_SEGMENTS):
+
+            label = labels[j]
+            duration = durations[j]
+            distance = distances[j]["distance"]
+
+            action_name = ACTIONS[label][0]
+
+            # 메트로놈 횟수 계산
+            if label == 1:
+                metronome_count = 0
+            else:
+                metronome_count = round(
+                    duration * METRONOME_BPM / 60
+                )
+
+            # 레이블
+            row[f"segment_{j + 1}_label"] = (
+                f"{action_name}({label})"
+            )
+
+            # 이동 거리(소요 시간, 메트로놈 횟수)
+            row[f"segment_{j + 1}_duration"] = (
+                f"{distance}cm "
+                f"({duration:g}초, "
+                f"메트로놈 {metronome_count}회)"
+            )
+
+        rows.append(row)
+
+    # 기존 CSV 컬럼 구조 유지
     fieldnames = ["scenario_id"]
 
-    for i in range(1, 7):
+    for i in range(NUM_SEGMENTS):
+
         fieldnames.extend([
-            f"segment_{i}_label",
-            f"segment_{i}_duration"
+            f"segment_{i + 1}_label",
+            f"segment_{i + 1}_duration"
         ])
 
-    scenarios = {}
+    with open(
+        output_path,
+        "w",
+        newline="",
+        encoding="utf-8-sig"
+    ) as f:
 
-    for row in rows:
-        scenario_id = row["scenario_id"]
-
-        if scenario_id not in scenarios:
-            scenarios[scenario_id] = {"scenario_id": scenario_id}
-
-        i = row["segment_order"]
-
-        scenarios[scenario_id][f"segment_{i}_label"] = (
-        f'{row["label_name"]}({row["label"]})'
+        writer = csv.DictWriter(
+            f,
+            fieldnames=fieldnames
         )
-        scenarios[scenario_id][f"segment_{i}_duration"] = row["duration_sec"]
 
-    with open(output_path, "w", newline="", encoding="utf-8-sig") as file:
-        writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
-        writer.writerows(scenarios.values())
+        writer.writerows(rows)
+
+    print(f"시나리오 {NUM_SCENARIOS}개 생성 완료")
+    print(f"저장 위치: {output_path}")
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="20초 행동 시나리오를 생성하여 CSV로 저장"
-    )
-    parser.add_argument(
-        "--count",
-        type=int,
-        default=100,
-        help="생성할 시나리오 개수 (기본값: 100)",
-    )
-    parser.add_argument(
-        "--output",
-        default="scenarios.csv",
-        help="출력 CSV 파일명 (기본값: scenarios.csv)",
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=None,
-        help="시드",
-    )
-    args = parser.parse_args()
-
-    rows = generate_scenarios(args.count, args.seed)
-    save_csv(rows, args.output)
-
-    print(f"시나리오 {args.count}개 생성 완료")
-    print(f"총 구간 수: {len(rows)}개")
-    print(f"저장 위치: {args.output}")
-
-
+# 실행
 if __name__ == "__main__":
-    main()
+    save_scenarios()
