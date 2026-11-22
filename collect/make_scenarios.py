@@ -178,12 +178,9 @@ def save_scenarios(output_path="scenarios.csv"):
 
             action_name = ACTIONS[label][0]
 
-            # 메트로놈 횟수 계산
-            if label == 1:
-                metronome_count = 0
-            else:
-                metronome_count = round(
-                    duration * METRONOME_BPM / 60
+            ## 메트로놈 횟수 계산
+            metronome_count = round(
+                duration * METRONOME_BPM / 60
                 )
 
             # 레이블
