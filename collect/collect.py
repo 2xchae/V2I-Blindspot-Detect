@@ -18,7 +18,7 @@ METRONOME_BPM = 120             # same as make_scenarios.py
 STEP_CM = 25                    # one move = 25 cm (same as make_scenarios.py)
 MAX_POS = 150                   # scenarios start at 150 cm
 # time for one 25 cm move (same as make_scenarios.py ACTIONS)
-UNIT_TIME = {2: 3.0, 3: 1.0, 4: 1.0}
+UNIT_TIME = {2: 3.0, 3: 1.0, 4: 3.0}
 
 # label value : (name, instruction shown on screen)
 LABELS = {
@@ -26,7 +26,7 @@ LABELS = {
     1: ("STOP",    "stand STILL"),
     2: ("WALK_IN", "WALK toward sensor, 25cm every 3s (6 beats)"),
     3: ("RUN_IN",  "RUN toward sensor, 25cm every 1s (2 beats)"),
-    4: ("LEAVE",   "move AWAY, 25cm every 1s (2 beats)"),
+    4: ("LEAVE",   "WALK AWAY, 25cm every 3s (6 beats)"),
 }
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
