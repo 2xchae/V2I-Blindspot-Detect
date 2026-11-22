@@ -32,6 +32,7 @@ LABELS = {
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SCENARIO_CSV = os.path.join(BASE_DIR, "scenarios.csv")   # team scenario list (GitHub)
 DATA_CSV = os.path.join(BASE_DIR, "dataset.csv")         # collected data
+DELETED_CSV = os.path.join(BASE_DIR, "deleted.csv")      # deleted / replaced rows (backup)
 # ====================
 
 
@@ -230,18 +231,8 @@ def mismatched_ids(scenarios):
     return bad
 
 
-def save(sid, dist, labels):
-    """Save one scenario. If sid already exists, its old rows are replaced."""
-    header, rows = read_dataset()
-    if header is None:
-        header = ["scenario_id", "row_type"] + [f"t_{i}" for i in range(N_SAMPLES)]
-
-    replaced = any(row and row[0] == sid for row in rows)
-    rows = [row for row in rows if row and row[0] != sid]
-    rows.append([sid, "distance"] + dist)
-    rows.append([sid, "label"] + labels)
+def write_dataset(header, rows):
     rows.sort(key=lambda r: (r[0], 0 if r[1] == "distance" else 1))  # keep id order
-
     tmp = DATA_CSV + ".tmp"
     with open(tmp, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
@@ -249,7 +240,54 @@ def save(sid, dist, labels):
         w.writerows(rows)
     os.replace(tmp, DATA_CSV)   # write fully, then swap (safe if power is lost)
 
-    print(f"{'Replaced' if replaced else 'Saved'} {sid} -> {DATA_CSV}")
+
+def archive(header, removed):
+    """Keep removed rows in deleted.csv (same format) so they can be restored."""
+    if not removed:
+        return
+    new_file = not os.path.exists(DELETED_CSV)
+    with open(DELETED_CSV, "a", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        if new_file:
+            w.writerow(header)
+        w.writerows(removed)
+
+
+def save(sid, dist, labels):
+    """Save one scenario. If sid already exists, its old rows are replaced."""
+    header, rows = read_dataset()
+    if header is None:
+        header = ["scenario_id", "row_type"] + [f"t_{i}" for i in range(N_SAMPLES)]
+
+    removed = [row for row in rows if row and row[0] == sid]
+    rows = [row for row in rows if row and row[0] != sid]
+    rows.append([sid, "distance"] + dist)
+    rows.append([sid, "label"] + labels)
+    write_dataset(header, rows)
+    archive(header, removed)    # old version of a replaced scenario
+
+    print(f"{'Replaced' if removed else 'Saved'} {sid} -> {DATA_CSV}")
+
+
+def delete(sid):
+    """Remove one scenario from dataset.csv (moved to deleted.csv). Return True if removed."""
+    header, rows = read_dataset()
+    removed = [row for row in rows if row and row[0] == sid]
+    if not removed:
+        return False
+    write_dataset(header, [row for row in rows if row and row[0] != sid])
+    archive(header, removed)
+    return True
+
+
+def confirm(question):
+    return input(f"{question} (y/n) > ").strip().lower() == "y"
+
+
+def to_sid(text):
+    """'5' or 'scenario_005' -> 'scenario_005'."""
+    text = text.strip()
+    return f"scenario_{int(text):03d}" if text.isdigit() else text
 
 
 def pick_scenario(cmd, ids, done):
@@ -261,8 +299,7 @@ def pick_scenario(cmd, ids, done):
         print("All scenarios are collected.")
         return None
 
-    if cmd.isdigit():                       # "5" -> scenario_005
-        cmd = f"scenario_{int(cmd):03d}"
+    cmd = to_sid(cmd)                       # "5" -> scenario_005
     if cmd in ids:
         return cmd
     print("Unknown scenario. Type a number like 5 or scenario_005")
@@ -286,12 +323,36 @@ def main():
             print(f"  scenarios.csv (e.g. {', '.join(bad[:3])}). They were collected with an")
             print("  old scenario list. Move dataset.csv to another folder before collecting.")
 
+        saved_this_session = []     # for undo
+
         while True:
             done = collected_ids()
             print(f"\nProgress: {len([i for i in ids if i in done])}/{len(ids)} collected")
-            cmd = input("Enter = next scenario, number = pick (e.g. 5), q = quit > ").strip().lower()
+            print("Enter = next | number = pick (e.g. 5) | u = undo last save | x 5 = delete 5 | q = quit")
+            cmd = input("> ").strip().lower()
             if cmd == "q":
                 break
+
+            if cmd == "u":                          # undo the last save
+                while saved_this_session and saved_this_session[-1] not in done:
+                    saved_this_session.pop()        # already deleted
+                if not saved_this_session:
+                    print("Nothing to undo in this session. Use x <number> to delete.")
+                    continue
+                last = saved_this_session[-1]
+                if confirm(f"Delete last saved {last}?") and delete(last):
+                    saved_this_session.pop()
+                    print(f"Deleted {last} (kept a copy in {DELETED_CSV})")
+                continue
+
+            if cmd.startswith("x"):                 # delete a chosen scenario
+                target = to_sid(cmd[1:])
+                if target not in done:
+                    print(f"{target or '?'} is not in dataset.csv")
+                    continue
+                if confirm(f"Delete {target}?") and delete(target):
+                    print(f"Deleted {target} (kept a copy in {DELETED_CSV})")
+                continue
 
             sid = pick_scenario(cmd, ids, done)
             if sid is None:
@@ -318,6 +379,7 @@ def main():
                 c = input("s = save, r = retry same scenario, d = discard > ").strip().lower()
                 if c == "s":
                     save(sid, dist, labels)
+                    saved_this_session.append(sid)
                     break
                 elif c == "r":
                     print(f"  >> Go back to {scenario[0]['start']}cm")
