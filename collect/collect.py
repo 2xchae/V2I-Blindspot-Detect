@@ -366,10 +366,7 @@ def main():
             print(f"  >> Stand at {scenario[0]['start']}cm from the sensor before START")
 
             while True:
-                input("Press Enter to START (3s countdown) > ")
-                for c in (3, 2, 1):
-                    print(f"  {c}...")
-                    time.sleep(1)
+                input("Press Enter to START > ")
                 print("  GO!")
 
                 dist, labels, late = collect(scenario)
