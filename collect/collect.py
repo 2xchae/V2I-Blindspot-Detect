@@ -14,6 +14,7 @@ N_SAMPLES = 400                 # 20 s -> t_0 ~ t_399
 DIST_MIN = 3.0                  # cm
 DIST_MAX = 150.0                # cm (also used when no echo / timeout)
 
+METRONOME_BPM = 120             # same as make_scenarios.py
 STEP_CM = 25                    # one move = 25 cm (same as make_scenarios.py)
 MAX_POS = 150                   # scenarios start at 150 cm
 # time for one 25 cm move (same as make_scenarios.py ACTIONS)
@@ -138,9 +139,10 @@ def load_scenarios():
 
 def segment_text(s):
     name = LABELS[s["label"]][0]
+    beats = round(s["sec"] * METRONOME_BPM / 60)
     if s["label"] == 1:
-        return f"{name} at {s['start']}cm ({s['sec']:g}s)"
-    return f"{name} {s['start']}->{s['end']}cm ({s['sec']:g}s)"
+        return f"{name} at {s['start']}cm ({s['sec']:g}s, {beats} beats)"
+    return f"{name} {s['start']}->{s['end']}cm ({s['sec']:g}s, {beats} beats)"
 
 
 def scenario_text(scenario):
@@ -214,6 +216,20 @@ def collected_ids():
     return {row[0] for row in rows if row}
 
 
+def mismatched_ids(scenarios):
+    """Collected scenarios whose saved labels differ from the current scenarios.csv."""
+    _, rows = read_dataset()
+    bad = []
+    for row in rows:
+        if len(row) < 2 or row[1] != "label":
+            continue
+        sid = row[0]
+        expected = [str(v) for v in expand_labels(scenarios[sid])] if sid in scenarios else None
+        if row[2:] != expected:
+            bad.append(sid)
+    return bad
+
+
 def save(sid, dist, labels):
     """Save one scenario. If sid already exists, its old rows are replaced."""
     header, rows = read_dataset()
@@ -262,7 +278,13 @@ def main():
         print("Data collector ready.")
         print(f"  {len(ids)} scenarios loaded from {SCENARIO_CSV}")
         print(f"  {N_SAMPLES} samples x {SAMPLE_INTERVAL}s = {N_SAMPLES * SAMPLE_INTERVAL:.0f}s per scenario")
-        print("  Use a 120 BPM metronome while collecting.")
+        print(f"  Use a {METRONOME_BPM} BPM metronome while collecting.")
+
+        bad = mismatched_ids(scenarios)
+        if bad:
+            print(f"\n  WARNING: {len(bad)} scenario(s) in dataset.csv do not match the current")
+            print(f"  scenarios.csv (e.g. {', '.join(bad[:3])}). They were collected with an")
+            print("  old scenario list. Move dataset.csv to another folder before collecting.")
 
         while True:
             done = collected_ids()
@@ -313,3 +335,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
