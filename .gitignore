@@ -1,2 +1,5 @@
 __pycache__/
-*.pyc
+*.pt
+*.history.json
+*.curves.png
+!cnn_relabel_w40.pt
