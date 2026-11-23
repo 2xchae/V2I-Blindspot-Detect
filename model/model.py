@@ -13,7 +13,7 @@ class CNN(nn.Module):
         self.pooling = nn.AdaptiveAvgPool1d(1)
         self.flatten = nn.Flatten()
         self.dropout = nn.Dropout(p=0.3)
-        self.linear = nn.Linear(64,5)
+        self.linear = nn.Linear(64,4)
         
 
     def forward(self, x): # x.shape는 (batch, 2, 40)
