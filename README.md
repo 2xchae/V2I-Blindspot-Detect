@@ -4,8 +4,8 @@
 아두이노 UNO와 라즈베리파이4를 메인으로 사용하였습니다.
 
 <p align="center">
-  <img src="assets/overview.jpg" height="300" alt="프로젝트 대표 사진">
-  <img src="assets/demo.gif" height="300" alt="시연 GIF">
+  <img src="assets/overview.jpg" height="230" alt="프로젝트 대표 사진">
+  <img src="assets/demo.gif" height="230" alt="시연 GIF">
 </p>
 
 ## 소개
